@@ -1,298 +1,409 @@
 import pygame
-from dataclasses import dataclass
+import math
 
-GRAVITY = 2200.0
-MOVE_SPEED = 260.0
-JUMP_SPEED = 720.0
 
-COYOTE_TIME = 0.10
-JUMP_BUFFER_TIME = 0.12
+def draw_offwhite_background(surface):
+    surface.fill((245, 242, 235))
 
-@dataclass
+
+def draw_solid_runner(surface, rect, color, t, vx):
+    cx = rect.centerx
+    head_r = 10
+    thickness = 7
+
+    head_cy = rect.y + head_r + 2
+    body_top_y = head_cy + head_r + 2
+    hip_y = rect.bottom - 18
+
+    speed = min(1.0, abs(vx) / 260.0)
+    swing = math.sin(t * (10.0 + 6.0 * speed)) * (10 + 6 * speed)
+
+    pygame.draw.circle(surface, color, (cx, head_cy), head_r)
+
+    pygame.draw.line(surface, color, (cx, body_top_y), (cx, hip_y), thickness)
+
+    shoulder_y = body_top_y + 12
+    arm_len = 18
+    a1 = int(swing * 0.6)
+    pygame.draw.line(surface, color, (cx, shoulder_y), (cx - arm_len, shoulder_y + a1), thickness)
+    pygame.draw.line(surface, color, (cx, shoulder_y), (cx + arm_len, shoulder_y - a1), thickness)
+
+    leg_len = 22
+    l1 = int(swing)
+    l2 = -int(swing)
+    pygame.draw.line(surface, color, (cx - 6, hip_y), (cx - 10, hip_y + leg_len + l1 // 3), thickness)
+    pygame.draw.line(surface, color, (cx + 6, hip_y), (cx + 10, hip_y + leg_len + l2 // 3), thickness)
+
+
+def draw_key_icon(surface, rect):
+    x, y, w, h = rect
+    cx = x + w // 3
+    cy = y + h // 2
+    r = max(4, min(w, h) // 4)
+
+    pygame.draw.circle(surface, (235, 215, 90), (cx, cy), r, 0)
+    shaft = pygame.Rect(cx + r - 1, cy - 3, w - (cx - x) - r - 2, 6)
+    pygame.draw.rect(surface, (235, 215, 90), shaft)
+    pygame.draw.rect(surface, (235, 215, 90), pygame.Rect(shaft.right - 10, cy + 3, 4, 8))
+    pygame.draw.rect(surface, (235, 215, 90), pygame.Rect(shaft.right - 18, cy + 3, 4, 8))
+
+
+def draw_gun_icon(surface, rect):
+    x, y, w, h = rect
+    body = pygame.Rect(x + 2, y + 6, w - 4, h - 14)
+    grip = pygame.Rect(x + w // 2, y + h // 2, w // 3, h // 2 - 2)
+    barrel = pygame.Rect(x + w - 8, y + 8, 8, 6)
+
+    pygame.draw.rect(surface, (55, 55, 60), body, border_radius=3)
+    pygame.draw.rect(surface, (45, 45, 52), grip, border_radius=3)
+    pygame.draw.rect(surface, (70, 70, 80), barrel, border_radius=2)
+
+
 class Player:
-    rect: pygame.Rect
-    color: tuple
-    vx: float = 0.0
-    vy: float = 0.0
-    on_ground: bool = False
-    facing: int = 1
-    has_gun: bool = False
-    coyote: float = 0.0
-    jump_buffer: float = 0.0
+    def __init__(self, x, y, color, controls):
+        self.rect = pygame.Rect(x, y, 26, 58)
+        self.color = color
+        self.controls = controls
 
-def collide_axis(rect: pygame.Rect, dx: int, dy: int, solids: list[pygame.Rect]) -> bool:
-    on_ground = False
+        self.vx = 0.0
+        self.vy = 0.0
+        self.on_ground = False
+        self.coyote = 0.0
 
-    rect.x += dx
-    for s in solids:
-        if rect.colliderect(s):
-            if dx > 0:
-                rect.right = s.left
-            elif dx < 0:
-                rect.left = s.right
+    def handle_input(self, keys):
+        speed = 260.0
+        self.vx = 0.0
+        if keys[self.controls.left]:
+            self.vx -= speed
+        if keys[self.controls.right]:
+            self.vx += speed
 
-    rect.y += dy
-    for s in solids:
-        if rect.colliderect(s):
-            if dy > 0:
-                rect.bottom = s.top
-                on_ground = True
-            elif dy < 0:
-                rect.top = s.bottom
+        if keys[self.controls.jump] and (self.on_ground or self.coyote > 0.0):
+            self.vy = -560.0
+            self.on_ground = False
+            self.coyote = 0.0
 
-    return on_ground
+    def physics(self, dt, solids):
+        gravity = 1050.0
+        self.vy += gravity * dt
+
+        dx = int(self.vx * dt)
+        dy = int(self.vy * dt)
+
+        self.rect.x += dx
+        for s in solids:
+            if self.rect.colliderect(s):
+                if dx > 0:
+                    self.rect.right = s.left
+                elif dx < 0:
+                    self.rect.left = s.right
+
+        self.rect.y += dy
+        self.on_ground = False
+        for s in solids:
+            if self.rect.colliderect(s):
+                if dy > 0:
+                    self.rect.bottom = s.top
+                    self.vy = 0.0
+                    self.on_ground = True
+                elif dy < 0:
+                    self.rect.top = s.bottom
+                    self.vy = 0.0
+
+        if self.on_ground:
+            self.coyote = 0.10
+        else:
+            self.coyote = max(0.0, self.coyote - dt)
+
 
 class Level1:
-    def __init__(self, w: int, h: int, p1_controls, p2_controls):
-        self.w = w
-        self.h = h
-        self.p1c = p1_controls
-        self.p2c = p2_controls
+    def __init__(self, width, height, p1_controls, p2_controls):
+        self.w = width
+        self.h = height
+        self.p1_controls = p1_controls
+        self.p2_controls = p2_controls
 
-        self.font = pygame.font.SysFont(None, 22)
-        self.big_font = pygame.font.SysFont(None, 44)
+        pygame.font.init()
+        self.font_title = pygame.font.SysFont("Arial", 44, bold=True)
+        self.font_ui = pygame.font.SysFont("Arial", 22, bold=True)
+        self.font_small = pygame.font.SysFont("Arial", 18)
 
-        self.solids = self.build_solids()
+        self.colors = {
+            "border": (45, 45, 55),
+            "muted": (70, 70, 85),
+            "red": (220, 70, 70),
+            "green": (70, 210, 140),
+            "yellow": (210, 190, 80),
+            "chip_dark": (140, 140, 150),
+            "chip_green": (120, 220, 160),
+            "chip_yellow": (220, 205, 110),
+        }
 
-        self.cage_area = pygame.Rect(40, self.h - 210, 180, 170)
-        self.cage_walls = [
-            pygame.Rect(self.cage_area.left, self.cage_area.top, self.cage_area.width, 10),
-            pygame.Rect(self.cage_area.left, self.cage_area.bottom - 10, self.cage_area.width, 10),
-            pygame.Rect(self.cage_area.left, self.cage_area.top, 10, self.cage_area.height),
-            pygame.Rect(self.cage_area.right - 10, self.cage_area.top, 10, self.cage_area.height),
-        ]
+        self.level_title = "LEVEL 1"
+        self.objective = "Objective: GREEN get key"
 
-        red_spawn = pygame.Rect(self.cage_area.left + 60, self.cage_area.bottom - 44, 28, 34)
+        self.margin = 24
+        self.top_h = 84
+        self.top_bar = pygame.Rect(self.margin, self.margin, self.w - self.margin * 2, self.top_h)
 
-        self.p1 = Player(red_spawn.copy(), (220, 70, 70), has_gun=False)
-        self.p2 = Player(pygame.Rect(260, self.h - 120, 28, 34), (70, 210, 140), has_gun=False)
+        self._wood_cache = {}
 
-        self.key_rect = pygame.Rect(760, 260, 18, 18)
-        self.gun_pickup = pygame.Rect(740, self.h - 78, 40, 40)
-        self.exit_zone = pygame.Rect(880, self.h - 140, 60, 100)
+        self.base_solids, self.platforms = self._build_level_solids()
 
-        self.key_collected = False
+        self.cage = pygame.Rect(36, self.h - 290, 260, 240)
         self.cage_open = False
-        self.red_released = False
-        self.guns_available = False
-        self.guns_collected = False
+        self.cage_solids = self._build_cage_solids(self.cage)
 
-    def build_solids(self):
+        self.key_rect = pygame.Rect(560, self.h - 280, 40, 24)
+        self.key_taken = False
+        self.key_drop_box_visible = False
+        self.key_dropped = False
+
+        self.key_drop_box = pygame.Rect(self.cage.right + 14, self.cage.bottom - 86, 70, 70)
+
+        self.gun_spawned = False
+        self.gun_taken = False
+        self.gun_rect = pygame.Rect(self.cage.right + 105, self.cage.bottom - 68, 44, 28)
+
+        self.gate_spawned = False
+        self.gate_rect = pygame.Rect(self.w - 160, self.h - 240, 120, 220)
+
+        self.p1 = Player(self.cage.x + 50, self.cage.bottom - 82, self.colors["red"], p1_controls)
+        self.p2 = Player(420, self.h - 90, self.colors["green"], p2_controls)
+
+        self.time_in_level = 0.0
+
+    def _build_level_solids(self):
         solids = []
-        solids.append(pygame.Rect(0, self.h - 40, self.w, 40))
-        solids.append(pygame.Rect(0, 0, self.w, 20))
-        solids.append(pygame.Rect(0, 0, 20, self.h))
-        solids.append(pygame.Rect(self.w - 20, 0, 20, self.h))
+        plats = []
 
-        solids.append(pygame.Rect(120, 420, 240, 20))
-        solids.append(pygame.Rect(430, 360, 240, 20))
-        solids.append(pygame.Rect(710, 300, 190, 20))
-        solids.append(pygame.Rect(250, 280, 160, 20))
-        solids.append(pygame.Rect(70, 320, 120, 20))
-        return solids
+        solids.append(pygame.Rect(0, 0, self.w, 18))
+        solids.append(pygame.Rect(0, self.h - 18, self.w, 18))
+        solids.append(pygame.Rect(0, 0, 18, self.h))
+        solids.append(pygame.Rect(self.w - 18, 0, 18, self.h))
 
-    def apply_jump_helpers(self, p: Player, dt: float):
-        p.jump_buffer = max(0.0, p.jump_buffer - dt)
-        p.coyote = max(0.0, p.coyote - dt)
-        if p.on_ground:
-            p.coyote = COYOTE_TIME
-        if p.jump_buffer > 0.0 and p.coyote > 0.0:
-            p.vy = -JUMP_SPEED
-            p.jump_buffer = 0.0
-            p.coyote = 0.0
+        p0 = pygame.Rect(60, self.h - 60, 820, 18)
+        p1 = pygame.Rect(240, self.h - 150, 320, 18)
+        p2 = pygame.Rect(520, self.h - 260, 480, 18)
 
-    def update_player(self, p: Player, ctrl, dt: float, solids: list[pygame.Rect]):
+        plats.extend([p0, p1, p2])
+        solids.extend(plats)
+
+        return solids, plats
+
+    def _build_cage_solids(self, cage_rect):
+        x, y, w, h = cage_rect
+        thick = 18
+        return {
+            "left": pygame.Rect(x, y, thick, h),
+            "top": pygame.Rect(x, y, w, thick),
+            "bottom": pygame.Rect(x, y + h - thick, w, thick),
+            "door": pygame.Rect(x + w - thick, y, thick, h),
+        }
+
+    def update(self, dt, events):
+        self.time_in_level += dt
+
+        for e in events:
+            if e.type == pygame.KEYDOWN:
+                if e.key == pygame.K_ESCAPE:
+                    return "quit"
+                if e.key == pygame.K_r:
+                    return "reset"
+
         keys = pygame.key.get_pressed()
 
-        p.vx = 0.0
-        if keys[ctrl.left]:
-            p.vx -= MOVE_SPEED
-            p.facing = -1
-        if keys[ctrl.right]:
-            p.vx += MOVE_SPEED
-            p.facing = 1
+        self.p1.handle_input(keys)
+        self.p2.handle_input(keys)
 
-        p.vy += GRAVITY * dt
-
-        dx = int(p.vx * dt)
-        dy = int(p.vy * dt)
-
-        g1 = collide_axis(p.rect, dx, 0, solids)
-        g2 = collide_axis(p.rect, 0, dy, solids)
-
-        p.on_ground = g1 or g2
-        if p.on_ground and p.vy > 0:
-            p.vy = 0.0
-
-    def draw_panel(self, screen, rect, title, lines, accent):
-        panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-        panel.fill((0, 0, 0, 140))
-        screen.blit(panel, (rect.x, rect.y))
-        pygame.draw.rect(screen, (255, 255, 255), rect, 2, border_radius=12)
-
-        title_surf = self.font.render(title, True, accent)
-        screen.blit(title_surf, (rect.x + 12, rect.y + 10))
-
-        y = rect.y + 36
-        for line in lines:
-            surf = self.font.render(line, True, (235, 235, 240))
-            screen.blit(surf, (rect.x + 12, y))
-            y += 20
-
-    def draw_badge(self, screen, x, y, label, on, on_color, off_color=(120, 120, 140)):
-        text = f"{label}: {'YES' if on else 'NO'}"
-        color = on_color if on else off_color
-        pad_x = 10
-        pad_y = 6
-        surf = self.font.render(text, True, (20, 20, 26))
-        w = surf.get_width() + pad_x * 2
-        h = surf.get_height() + pad_y * 2
-
-        badge = pygame.Rect(x, y, w, h)
-        pygame.draw.rect(screen, color, badge, border_radius=999)
-        screen.blit(surf, (x + pad_x, y + pad_y))
-        return w
-
-    def objective_text(self):
-        if not self.key_collected:
-            return "Objective: Green get the key"
-        if not self.red_released:
-            return "Objective: Red leave the cage"
-        if not self.guns_collected:
-            return "Objective: Collect guns"
-        return "Objective: Both enter exit"
-
-    def update(self, dt: float, events: list[pygame.event.Event]):
-        for event in events:
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    return "quit"
-                if event.key == pygame.K_r:
-                    return "reset"
-                if event.key == self.p1c.jump:
-                    self.p1.jump_buffer = JUMP_BUFFER_TIME
-                if event.key == self.p2c.jump:
-                    self.p2.jump_buffer = JUMP_BUFFER_TIME
-
-        current_solids = list(self.solids)
+        solids = list(self.base_solids)
+        solids.extend([self.cage_solids["left"], self.cage_solids["top"], self.cage_solids["bottom"]])
         if not self.cage_open:
-            current_solids.extend(self.cage_walls)
+            solids.append(self.cage_solids["door"])
 
-        self.update_player(self.p1, self.p1c, dt, current_solids)
-        self.update_player(self.p2, self.p2c, dt, current_solids)
+        self.p1.physics(dt, solids)
+        self.p2.physics(dt, solids)
 
-        self.apply_jump_helpers(self.p1, dt)
-        self.apply_jump_helpers(self.p2, dt)
+        action_pressed_green = any(
+            e.type == pygame.KEYDOWN and e.key == self.p2_controls.shoot
+            for e in events
+        )
 
-        if (not self.key_collected) and self.p2.rect.colliderect(self.key_rect):
-            self.key_collected = True
-            self.cage_open = True
+        # 1) GREEN gets key
+        if not self.key_taken and self.p2.rect.colliderect(self.key_rect):
+            self.key_taken = True
+            self.key_drop_box_visible = True
+            self.objective = "Objective: Bring key to drop box and press action"
 
-        if self.cage_open and (not self.red_released):
-            if not self.cage_area.contains(self.p1.rect):
-                self.red_released = True
-                self.guns_available = True
+        # 2) Drop key into box (near cage) to open cage
+        if self.key_taken and (not self.key_dropped) and self.key_drop_box_visible:
+            if self.p2.rect.colliderect(self.key_drop_box) and action_pressed_green:
+                self.key_dropped = True
+                self.key_drop_box_visible = False
+                self.cage_open = True
 
-        if self.guns_available and (not self.guns_collected):
-            if self.p1.rect.colliderect(self.gun_pickup) or self.p2.rect.colliderect(self.gun_pickup):
-                self.guns_collected = True
-                self.p1.has_gun = True
-                self.p2.has_gun = True
+                self.gun_spawned = True
+                self.objective = "Objective: RED grab the gun"
 
-        if self.guns_collected:
-            both_in_exit = self.p1.rect.colliderect(self.exit_zone) and self.p2.rect.colliderect(self.exit_zone)
-            if both_in_exit:
+        # 3) Only RED can pick up gun
+        if self.gun_spawned and (not self.gun_taken):
+            if self.p1.rect.colliderect(self.gun_rect):
+                self.gun_taken = True
+                self.gate_spawned = True
+                self.objective = "Objective: Gate appeared. Both go to gate"
+
+        # 4) Win only after gate appears
+        if self.gate_spawned:
+            if self.p1.rect.colliderect(self.gate_rect) and self.p2.rect.colliderect(self.gate_rect):
                 return "next_level"
 
         return None
 
-    def draw(self, screen: pygame.Surface):
-        screen.fill((18, 18, 26))
+    def draw(self, screen):
+        draw_offwhite_background(screen)
+        self._draw_world(screen)
+        self._draw_ui(screen)
 
-        for s in self.solids:
-            pygame.draw.rect(screen, (70, 70, 90), s)
+    def _wood_surface(self, w, h):
+        key = (w, h)
+        if key in self._wood_cache:
+            return self._wood_cache[key]
 
-        cage_surface = pygame.Surface((self.cage_area.width, self.cage_area.height), pygame.SRCALPHA)
-        cage_surface.fill((110, 200, 255, 55) if not self.cage_open else (90, 230, 150, 40))
-        screen.blit(cage_surface, (self.cage_area.x, self.cage_area.y))
+        surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        base = (145, 110, 78)
+        surf.fill(base)
 
-        if not self.cage_open:
-            for w in self.cage_walls:
-                pygame.draw.rect(screen, (170, 220, 255), w)
-        else:
-            for w in self.cage_walls:
-                pygame.draw.rect(screen, (90, 230, 150), w, 2)
+        plank_h = max(10, h // 2)
+        y = 0
+        toggle = 0
+        while y < h:
+            shade = 12 if toggle % 2 == 0 else -6
+            r = max(0, min(255, base[0] + shade))
+            g = max(0, min(255, base[1] + shade))
+            b = max(0, min(255, base[2] + shade))
+            pygame.draw.rect(surf, (r, g, b), pygame.Rect(0, y, w, plank_h))
+            pygame.draw.line(surf, (110, 80, 52), (0, y), (w, y), 2)
+            y += plank_h
+            toggle += 1
 
-        if not self.key_collected:
-            pygame.draw.rect(screen, (230, 210, 80), self.key_rect)
-            txt = self.font.render("KEY", True, (230, 210, 80))
-            screen.blit(txt, (self.key_rect.centerx - txt.get_width() // 2, self.key_rect.y - 18))
+        for x in range(0, w, 7):
+            drift = int(math.sin(x * 0.22) * 2)
+            pygame.draw.line(surf, (170, 135, 95), (x, 0 + drift), (x, h + drift), 1)
 
-        if self.guns_available and not self.guns_collected:
-            pygame.draw.rect(screen, (120, 120, 140), self.gun_pickup)
-            txt = self.font.render("GUN", True, (220, 220, 230))
-            screen.blit(txt, (self.gun_pickup.centerx - txt.get_width() // 2, self.gun_pickup.y - 18))
+        pygame.draw.rect(surf, (95, 70, 45), pygame.Rect(0, 0, w, h), 2)
 
-        if self.guns_collected:
-            pygame.draw.rect(screen, (80, 200, 120), self.gun_pickup)
-            txt = self.font.render("GUN", True, (80, 200, 120))
-            screen.blit(txt, (self.gun_pickup.centerx - txt.get_width() // 2, self.gun_pickup.y - 18))
+        self._wood_cache[key] = surf
+        return surf
 
-        exit_color = (80, 220, 140) if self.guns_collected else (210, 190, 70)
-        pygame.draw.rect(screen, exit_color, self.exit_zone)
+    def _draw_wood_platform(self, screen, rect):
+        wood = self._wood_surface(rect.w, rect.h)
+        screen.blit(wood, (rect.x, rect.y))
 
-        pygame.draw.rect(screen, self.p1.color, self.p1.rect)
-        pygame.draw.rect(screen, self.p2.color, self.p2.rect)
+        shadow = pygame.Surface((rect.w, 6), pygame.SRCALPHA)
+        shadow.fill((0, 0, 0, 35))
+        screen.blit(shadow, (rect.x, rect.y + rect.h))
 
-        pad = 12
-        top_h = 64
-        top = pygame.Rect(pad, pad, self.w - pad * 2, top_h)
+    def _draw_world(self, screen):
+        for s in self.platforms:
+            self._draw_wood_platform(screen, s)
 
-        bar = pygame.Surface((top.width, top.height), pygame.SRCALPHA)
-        bar.fill((0, 0, 0, 150))
-        screen.blit(bar, (top.x, top.y))
-        pygame.draw.rect(screen, (255, 255, 255), top, 2, border_radius=16)
+        # Cage
+        x, y, w, h = self.cage
+        cage_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(cage_surf, (235, 232, 225, 255), pygame.Rect(0, 0, w, h), border_radius=18)
+        pygame.draw.rect(cage_surf, self.colors["border"], pygame.Rect(0, 0, w, h), 3, border_radius=18)
+        door_alpha = 60 if self.cage_open else 255
+        pygame.draw.rect(
+            cage_surf,
+            (*self.colors["border"], door_alpha),
+            pygame.Rect(w - 18, 0, 18, h),
+            border_radius=6,
+        )
+        screen.blit(cage_surf, (x, y))
 
-        title = self.big_font.render("LEVEL 1", True, (255, 255, 255))
-        screen.blit(title, (top.x + 16, top.y + 12))
+        # Key
+        if not self.key_taken:
+            pygame.draw.ellipse(screen, (0, 0, 0), self.key_rect.inflate(42, 26))
+            draw_key_icon(screen, self.key_rect)
 
-        obj = self.font.render(self.objective_text(), True, (235, 235, 240))
-        screen.blit(obj, (top.x + 190, top.y + 22))
+        # Key drop box appears near cage after green has key
+        if self.key_drop_box_visible and (not self.key_dropped):
+            pygame.draw.rect(screen, (220, 210, 175), self.key_drop_box, border_radius=14)
+            pygame.draw.rect(screen, self.colors["border"], self.key_drop_box, 3, border_radius=14)
+            label = self.font_small.render("DROP", True, self.colors["border"])
+            screen.blit(label, (self.key_drop_box.centerx - label.get_width() // 2, self.key_drop_box.y + 10))
+            krect = pygame.Rect(self.key_drop_box.centerx - 18, self.key_drop_box.y + 34, 36, 20)
+            draw_key_icon(screen, krect)
 
-        title = self.big_font.render("LEVEL 1", True, (255, 255, 255))
-        screen.blit(title, (top.x + 14, top.y + 10))
+        # Gun appears only after key is dropped, and only red can pick
+        if self.gun_spawned and (not self.gun_taken):
+            pygame.draw.ellipse(screen, (0, 0, 0), self.gun_rect.inflate(46, 28))
+            draw_gun_icon(screen, self.gun_rect)
 
-        obj = self.font.render(self.objective_text(), True, (235, 235, 240))
-        screen.blit(obj, (top.x + 180, top.y + 22))
+        # Gate appears only after red grabs gun
+        if self.gate_spawned:
+            pygame.draw.rect(screen, (220, 210, 175), self.gate_rect, border_radius=18)
+            pygame.draw.rect(screen, self.colors["border"], self.gate_rect, 3, border_radius=18)
 
-        bx = top.x + top.width - 14
-        by = top.y + 16
-        for label, on, col in [
-            ("Key", self.key_collected, (230, 210, 80)),
-            ("Cage", self.cage_open, (90, 230, 150)),
-            ("Guns", self.guns_collected, (90, 230, 150)),
-        ]:
-            w = self.draw_badge(screen, bx - 10, by, label, on, col)
-            bx -= (w + 10)
+        # Players with leg animation
+        draw_solid_runner(screen, self.p1.rect, self.colors["red"], self.time_in_level, self.p1.vx)
+        draw_solid_runner(screen, self.p2.rect, self.colors["green"], self.time_in_level, self.p2.vx)
 
-        left_panel = pygame.Rect(16, 86, 320, 120)
-        right_panel = pygame.Rect(self.w - 336, 86, 320, 120)
+        # Float key above green while carrying (before drop)
+        if self.key_taken and (not self.key_dropped):
+            float_rect = pygame.Rect(self.p2.rect.centerx + 10, self.p2.rect.y - 14, 32, 20)
+            draw_key_icon(screen, float_rect)
 
-        p1_lines = [
-            f"Move: {pygame.key.name(self.p1c.left)}  {pygame.key.name(self.p1c.right)}",
-            f"Jump: {pygame.key.name(self.p1c.jump)}",
-            f"Shoot: {pygame.key.name(self.p1c.shoot)}",
-            f"Gun: {'YES' if self.p1.has_gun else 'NO'}",
-        ]
-        p2_lines = [
-            f"Move: {pygame.key.name(self.p2c.left)}  {pygame.key.name(self.p2c.right)}",
-            f"Jump: {pygame.key.name(self.p2c.jump)}",
-            f"Shoot: {pygame.key.name(self.p2c.shoot)}",
-            f"Gun: {'YES' if self.p2.has_gun else 'NO'}",
-        ]
+    def _draw_ui(self, screen):
+        self._panel(screen, self.top_bar, radius=18, alpha=230)
+        self._draw_top_bar_content(screen)
 
-        self.draw_panel(screen, left_panel, "PLAYER 1 RED", p1_lines, (220, 70, 70))
-        self.draw_panel(screen, right_panel, "PLAYER 2 GREEN", p2_lines, (70, 210, 140))
+        hint = "R reset   Esc quit   GREEN action is your shoot key (press to drop key)"
+        hint_s = self.font_small.render(hint, True, self.colors["muted"])
+        screen.blit(hint_s, (self.margin, self.h - 28))
 
-        help_text = self.font.render("R reset    Esc quit", True, (200, 200, 210))
-        screen.blit(help_text, (16, self.h - 28))
+    def _panel(self, screen, rect, radius, alpha):
+        surf = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+        pygame.draw.rect(surf, (255, 255, 255, alpha), pygame.Rect(0, 0, rect.w, rect.h), border_radius=radius)
+        pygame.draw.rect(surf, self.colors["border"], pygame.Rect(0, 0, rect.w, rect.h), 2, border_radius=radius)
+        screen.blit(surf, (rect.x, rect.y))
+
+    def _draw_top_bar_content(self, screen):
+        pad_x = 22
+        center_y = self.top_bar.y + self.top_bar.h // 2
+
+        title = self.font_title.render(self.level_title, True, self.colors["border"])
+        screen.blit(title, (self.top_bar.x + pad_x, center_y - title.get_height() // 2))
+
+        obj = self.font_ui.render(self.objective, True, self.colors["border"])
+        screen.blit(obj, (self.top_bar.centerx - obj.get_width() // 2, center_y - obj.get_height() // 2 + 2))
+
+
+    def _draw_chips_right(self, screen, bar_rect, chips):
+        chip_h = 34
+        gap = 10
+        pad = 14
+
+        x = bar_rect.right - pad
+        y = bar_rect.centery - chip_h // 2
+
+        for label, value, style in reversed(chips):
+            text = f"{label}: {value}"
+            s = self.font_small.render(text, True, (25, 25, 30))
+
+            w = s.get_width() + 22
+            x -= w
+
+            if style == "green":
+                bg = self.colors["chip_green"]
+            elif style == "yellow":
+                bg = self.colors["chip_yellow"]
+            else:
+                bg = self.colors["chip_dark"]
+
+            r = pygame.Rect(x, y, w, chip_h)
+            pygame.draw.rect(screen, bg, r, border_radius=999)
+            pygame.draw.rect(screen, self.colors["border"], r, 2, border_radius=999)
+
+            screen.blit(s, (r.x + 11, r.y + (chip_h - s.get_height()) // 2))
+            x -= gap
