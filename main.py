@@ -84,11 +84,17 @@ def lines_for(ctrl: Controls):
     ]
 
 def start_screen() -> tuple[Controls, Controls]:
-    p1_choice = 1
-    p2_choice = 1
+    # Fixed controls, no presets
+    p1_ctrl = Controls(left=pygame.K_a, right=pygame.K_d, jump=pygame.K_w, shoot=pygame.K_f)
+    p2_ctrl = Controls(left=pygame.K_LEFT, right=pygame.K_RIGHT, jump=pygame.K_UP, shoot=pygame.K_RSHIFT)
+
+    start_btn = pygame.Rect(WIDTH // 2 - 140, 120, 280, 54)
 
     while True:
         clock.tick(60)
+
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_down = False
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -96,23 +102,12 @@ def start_screen() -> tuple[Controls, Controls]:
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     raise SystemExit
-
-                if event.key == pygame.K_1:
-                    p1_choice = 1
-                if event.key == pygame.K_2:
-                    p1_choice = 2
-
-                if event.key == pygame.K_9:
-                    p2_choice = 1
-                if event.key == pygame.K_0:
-                    p2_choice = 2
-
-                if event.key == pygame.K_RETURN:
-                    return CONTROL_PRESETS_P1[p1_choice], CONTROL_PRESETS_P2[p2_choice]
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_down = True
 
         screen.fill((12, 12, 18))
 
-        # Background pattern dots
+        # Background dots
         for y in range(0, HEIGHT, 28):
             for x in range(0, WIDTH, 28):
                 if (x // 28 + y // 28) % 2 == 0:
@@ -120,47 +115,46 @@ def start_screen() -> tuple[Controls, Controls]:
 
         # Header
         draw_text(screen, 40, 26, "COOP PARTNER", big_font, (255, 255, 255))
-        draw_text(screen, 42, 92, "Pick your controls", mid_font, (220, 220, 230))
+        draw_text(screen, 42, 92, "These are your controls", mid_font, (220, 220, 230))
 
-        # Hint pills
-        pill(screen, 40, 124, "Player 1 presets: 1 or 2", (220, 70, 70))
-        pill(screen, 330, 124, "Player 2 presets: 9 or 0", (70, 210, 140))
-        pill(screen, 610, 124, "Press Enter to start", (230, 210, 80))
+        # Clickable start button
+        hovering = start_btn.collidepoint(mouse_pos)
+        btn_bg = (230, 210, 80) if hovering else (190, 175, 70)
+        glow_rect(screen, start_btn.inflate(14, 14), (230, 210, 80), strength=12 if hovering else 7)
+        pygame.draw.rect(screen, btn_bg, start_btn, border_radius=16)
+        pygame.draw.rect(screen, (20, 20, 26), start_btn, 3, border_radius=16)
+
+        label = mid_font.render("START GAME", True, (20, 20, 26))
+        screen.blit(label, (start_btn.centerx - label.get_width() // 2, start_btn.centery - label.get_height() // 2))
+
+        if hovering and mouse_down:
+            return p1_ctrl, p2_ctrl
 
         # Cards
-        p1_rect = pygame.Rect(40, 170, 430, 250)
-        p2_rect = pygame.Rect(490, 170, 430, 250)
+        p1_rect = pygame.Rect(40, 190, 430, 260)
+        p2_rect = pygame.Rect(490, 190, 430, 260)
 
         card(
             screen,
             p1_rect,
-            f"PLAYER 1  RED   preset {p1_choice}",
-            lines_for(CONTROL_PRESETS_P1[p1_choice]),
+            "PLAYER 1  RED",
+            lines_for(p1_ctrl),
             True,
             (220, 70, 70),
         )
         card(
             screen,
             p2_rect,
-            f"PLAYER 2  GREEN preset {p2_choice}",
-            lines_for(CONTROL_PRESETS_P2[p2_choice]),
+            "PLAYER 2  GREEN",
+            lines_for(p2_ctrl),
             True,
             (70, 210, 140),
         )
 
-        # Bottom objectives panel
-        obj = pygame.Rect(40, 438, 880, 80)
-        bg = pygame.Surface((obj.width, obj.height), pygame.SRCALPHA)
-        bg.fill((0, 0, 0, 150))
-        screen.blit(bg, (obj.x, obj.y))
-        pygame.draw.rect(screen, (255, 255, 255), obj, 2, border_radius=18)
-
-        draw_text(screen, 58, 454, "Level 1: Green gets key to open red cage. Red leaves. Guns appear. Collect. Exit together.", font)
-        draw_text(screen, 58, 480, "Level 2: Shoot both blue buttons once. Door stays open. Exit together.", font)
-
-        draw_text(screen, 40, 518, "Esc quit   In game: R reset", font, (200, 200, 210))
+        draw_text(screen, 40, 508, "Esc quit   In game: R reset", font, (200, 200, 210))
 
         pygame.display.flip()
+
 
 def main():
     p1_controls, p2_controls = start_screen()

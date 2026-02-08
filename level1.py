@@ -225,22 +225,39 @@ class Level1:
 
         if not self.key_collected:
             pygame.draw.rect(screen, (230, 210, 80), self.key_rect)
+            txt = self.font.render("KEY", True, (230, 210, 80))
+            screen.blit(txt, (self.key_rect.centerx - txt.get_width() // 2, self.key_rect.y - 18))
 
         if self.guns_available and not self.guns_collected:
             pygame.draw.rect(screen, (120, 120, 140), self.gun_pickup)
+            txt = self.font.render("GUN", True, (220, 220, 230))
+            screen.blit(txt, (self.gun_pickup.centerx - txt.get_width() // 2, self.gun_pickup.y - 18))
+
         if self.guns_collected:
             pygame.draw.rect(screen, (80, 200, 120), self.gun_pickup)
+            txt = self.font.render("GUN", True, (80, 200, 120))
+            screen.blit(txt, (self.gun_pickup.centerx - txt.get_width() // 2, self.gun_pickup.y - 18))
 
-        pygame.draw.rect(screen, (210, 190, 70), self.exit_zone)
+        exit_color = (80, 220, 140) if self.guns_collected else (210, 190, 70)
+        pygame.draw.rect(screen, exit_color, self.exit_zone)
 
         pygame.draw.rect(screen, self.p1.color, self.p1.rect)
         pygame.draw.rect(screen, self.p2.color, self.p2.rect)
 
-        top = pygame.Rect(16, 12, self.w - 32, 58)
+        pad = 12
+        top_h = 64
+        top = pygame.Rect(pad, pad, self.w - pad * 2, top_h)
+
         bar = pygame.Surface((top.width, top.height), pygame.SRCALPHA)
-        bar.fill((0, 0, 0, 140))
+        bar.fill((0, 0, 0, 150))
         screen.blit(bar, (top.x, top.y))
-        pygame.draw.rect(screen, (255, 255, 255), top, 2, border_radius=14)
+        pygame.draw.rect(screen, (255, 255, 255), top, 2, border_radius=16)
+
+        title = self.big_font.render("LEVEL 1", True, (255, 255, 255))
+        screen.blit(title, (top.x + 16, top.y + 12))
+
+        obj = self.font.render(self.objective_text(), True, (235, 235, 240))
+        screen.blit(obj, (top.x + 190, top.y + 22))
 
         title = self.big_font.render("LEVEL 1", True, (255, 255, 255))
         screen.blit(title, (top.x + 14, top.y + 10))
